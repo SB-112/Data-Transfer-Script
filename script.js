@@ -23,7 +23,7 @@ function initConfig(configSheet) {
     configSheet.getRange("A1").setValue("FROM SHEET:");
     configSheet.getRange("A2").setValue("TO SHEET:");
     configSheet.getRange("A4").setValue("FROM CELL:");
-    configSheet.getRange("B4").setValue("TO COLUMN HEADER:");
+    configSheet.getRange("B4").setValue("TO HEADER:");
 
     configSheet.getRange("A1:A2").setFontWeight("bold");
     configSheet
@@ -138,6 +138,6 @@ function transferData() {
     // Aappend row & notify user
     toSheet.appendRow(newRow);
     SpreadsheetApp.getUi().alert(
-        "Success: Form data transferred and form reset!",
+        "Success: Form data has been transferred and reset!",
     );
 }
