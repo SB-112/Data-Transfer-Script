@@ -31,8 +31,21 @@ function initConfig(configSheet) {
         .setFontWeight("bold")
         .setBackground("#e8eaed");
 
-    var newTableStyling = configSheet.getRange(4, 1, 15, 2);
-    newTableStyling.setBorder(
+    var topTable = configSheet.getRange("A1:B2");
+    topTable.setBorder(
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        "#000000",
+        SpreadsheetApp.BorderStyle.SOLID,
+    );
+
+    var rows = configSheet.getMaxRows() - 3;
+    var mappingTable = configSheet.getRange(4, 1, rows, 2);
+    mappingTable.setBorder(
         true,
         true,
         true,
