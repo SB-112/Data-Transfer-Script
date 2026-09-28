@@ -29,7 +29,7 @@ function generateMultiplePartnerTables() {
     var ui = SpreadsheetApp.getUi();
     var response = ui.prompt(
         "Generate Partner Configs",
-        "How many Partner tables do you want to create?",
+        "How many Partner tables do you want to create side-by-side?",
         ui.ButtonSet.OK_CANCEL,
     );
 
@@ -45,20 +45,22 @@ function generateMultiplePartnerTables() {
     if (!configSheet) configSheet = ss.insertSheet("Config");
 
     configSheet.clear(); // Clear existing layout
-    generateTablesLoop(configSheet, count); // Loop to create tables
+    generateTablesLoop(configSheet, count);
     ui.alert(
-        "Successfully created " + count + " Partner configuration table(s)!",
+        "Successfully created " +
+            count +
+            " Partner configuration table(s) side-by-side!",
     );
 }
 
-// FOR LOOP: Creates X number of identical partner config tables
+// FOR LOOP: Creates X number of partner config tables SIDE-BY-SIDE (3 columns apart)
 function generateTablesLoop(configSheet, totalTables) {
     var currentId = SpreadsheetApp.getActiveSpreadsheet().getId();
-    var startRow = 1;
+    var startCol = 1; // Start at Column A (1)
 
     for (var i = 1; i <= totalTables; i++) {
         // Header Banner
-        var titleRange = configSheet.getRange(startRow, 1, 1, 2);
+        var titleRange = configSheet.getRange(1, startCol, 1, 2);
         titleRange.merge();
         titleRange.setValue("--- PARTNER " + i + " CONFIGURATION ---");
         titleRange
@@ -67,55 +69,52 @@ function generateTablesLoop(configSheet, totalTables) {
             .setFontColor("#ffffff")
             .setHorizontalAlignment("center");
 
-        // Table Fields
+        // Settings
         configSheet
-            .getRange(startRow + 1, 1)
+            .getRange(2, startCol)
             .setValue("PARTNER NAME / LABEL:")
             .setFontWeight("bold");
-        configSheet.getRange(startRow + 1, 2).setValue("Partner " + i);
+        configSheet.getRange(2, startCol + 1).setValue("Partner " + i);
 
         configSheet
-            .getRange(startRow + 2, 1)
+            .getRange(3, startCol)
             .setValue("FROM SPREADSHEET (URL or ID):")
             .setFontWeight("bold");
-        configSheet.getRange(startRow + 2, 2).setValue(currentId);
+        configSheet.getRange(3, startCol + 1).setValue(currentId);
 
         configSheet
-            .getRange(startRow + 3, 1)
+            .getRange(4, startCol)
             .setValue("FROM TAB:")
             .setFontWeight("bold");
         configSheet
-            .getRange(startRow + 4, 1)
+            .getRange(5, startCol)
             .setValue("TO SPREADSHEET (URL or ID):")
             .setFontWeight("bold");
         configSheet
-            .getRange(startRow + 5, 1)
+            .getRange(6, startCol)
             .setValue("TO TAB:")
             .setFontWeight("bold");
 
         // Mapping Headers
         configSheet
-            .getRange(startRow + 7, 1)
+            .getRange(7, startCol)
             .setValue("FROM CELL:")
             .setFontWeight("bold")
             .setBackground("#e8eaed");
         configSheet
-            .getRange(startRow + 7, 2)
+            .getRange(7, startCol + 1)
             .setValue("TO HEADER:")
             .setFontWeight("bold")
             .setBackground("#e8eaed");
 
-        // 3 Blank Mapping Rows
-        configSheet
-            .getRange(startRow + 8, 1, 3, 2)
-            .setBorder(true, true, true, true, true, true);
+        // Column widths
+        configSheet.setColumnWidth(startCol, 240);
+        configSheet.setColumnWidth(startCol + 1, 280);
+        configSheet.setColumnWidth(startCol + 2, 40); // Spacer column between tables
 
-        // Offset startRow for the next table iteration in the loop
-        startRow += 13;
+        // Offset startCol by 3 columns for the next partner block (e.g. Cols 1-2, then 4-5, then 7-8)
+        startCol += 3;
     }
-
-    configSheet.setColumnWidth(1, 250);
-    configSheet.setColumnWidth(2, 350);
 }
 
 // Helper function to resolve Spreadsheet object
@@ -135,34 +134,37 @@ function getSpreadsheetFromInput(input) {
     }
 }
 
-// Finds start rows for all partner banners
-function getPartnerBlockRows(configSheet) {
-    var textFinder = configSheet.createTextFinder("--- PARTNER ");
-    var results = textFinder.findAll();
-    var rows = [];
+// Finds start columns for all partner banners in Row 1
+function getPartnerBlockColumns(configSheet) {
+    var cols = [];
+    var lastCol = configSheet.getLastColumn();
+    if (lastCol === 0) return cols;
 
-    for (var i = 0; i < results.length; i++) {
-        rows.push(results[i].getRow());
+    var rowValues = configSheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    for (var c = 0; c < rowValues.length; c++) {
+        if (rowValues[c].toString().indexOf("--- PARTNER ") !== -1) {
+            cols.push(c + 1); // 1-based column index
+        }
     }
-    return rows;
+    return cols;
 }
 
-// FOR LOOP: Updates dropdowns for all generated partner tables
+// FOR LOOP: Updates dropdowns for all side-by-side partner tables
 function updateSheetDropdowns() {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var configSheet = ss.getSheetByName("Config");
     if (!configSheet) return;
 
-    var blockRows = getPartnerBlockRows(configSheet);
-    if (blockRows.length === 0)
+    var blockCols = getPartnerBlockColumns(configSheet);
+    if (blockCols.length === 0)
         return SpreadsheetApp.getUi().alert(
             "No Partner blocks found in Config!",
         );
 
-    for (var k = 0; k < blockRows.length; k++) {
-        var startRow = blockRows[k];
-        var fromInput = configSheet.getRange(startRow + 2, 2).getValue();
-        var toInput = configSheet.getRange(startRow + 4, 2).getValue();
+    for (var k = 0; k < blockCols.length; k++) {
+        var startCol = blockCols[k];
+        var fromInput = configSheet.getRange(3, startCol + 1).getValue();
+        var toInput = configSheet.getRange(5, startCol + 1).getValue();
 
         var sourceSS = getSpreadsheetFromInput(fromInput);
         var targetSS = getSpreadsheetFromInput(toInput);
@@ -174,9 +176,9 @@ function updateSheetDropdowns() {
                 .requireValueInList(sourceNames, true)
                 .setAllowInvalid(false)
                 .build();
-            configSheet.getRange(startRow + 3, 2).setDataValidation(sourceRule);
-            if (configSheet.getRange(startRow + 3, 2).getValue() === "") {
-                configSheet.getRange(startRow + 3, 2).setValue(sourceNames[0]);
+            configSheet.getRange(4, startCol + 1).setDataValidation(sourceRule);
+            if (configSheet.getRange(4, startCol + 1).getValue() === "") {
+                configSheet.getRange(4, startCol + 1).setValue(sourceNames[0]);
             }
         }
 
@@ -187,48 +189,49 @@ function updateSheetDropdowns() {
                 .requireValueInList(targetNames, true)
                 .setAllowInvalid(false)
                 .build();
-            configSheet.getRange(startRow + 5, 2).setDataValidation(targetRule);
-            if (configSheet.getRange(startRow + 5, 2).getValue() === "") {
-                configSheet.getRange(startRow + 5, 2).setValue(targetNames[0]);
+            configSheet.getRange(6, startCol + 1).setDataValidation(targetRule);
+            if (configSheet.getRange(6, startCol + 1).getValue() === "") {
+                configSheet.getRange(6, startCol + 1).setValue(targetNames[0]);
             }
         }
     }
 
     SpreadsheetApp.getUi().alert(
-        "Updated dropdowns for all " + blockRows.length + " table(s)!",
+        "Updated dropdowns for all " + blockCols.length + " table(s)!",
     );
 }
 
-// FOR LOOP: Loops through every table block and processes the transfers
+// FOR LOOP: Reads dynamic mappings down to the last row for each column pair
 function transferData() {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var ui = SpreadsheetApp.getUi();
     var config = ss.getSheetByName("Config");
     if (!config) return ui.alert("Config Sheet is Missing!");
 
-    var blockRows = getPartnerBlockRows(config);
-    if (blockRows.length === 0) return ui.alert("No Partner blocks found!");
+    var blockCols = getPartnerBlockColumns(config);
+    if (blockCols.length === 0) return ui.alert("No Partner blocks found!");
 
     var successCount = 0;
+    var totalRows = config.getLastRow();
 
-    // FOR LOOP: Runs data transfer for each generated table
-    for (var i = 0; i < blockRows.length; i++) {
-        var startRow = blockRows[i];
+    // FOR LOOP: Runs data transfer for each side-by-side block
+    for (var i = 0; i < blockCols.length; i++) {
+        var startCol = blockCols[i];
 
         var partnerName = config
-            .getRange(startRow + 1, 2)
+            .getRange(2, startCol + 1)
             .getValue()
             .toString()
             .trim();
-        var fromInput = config.getRange(startRow + 2, 2).getValue();
+        var fromInput = config.getRange(3, startCol + 1).getValue();
         var fromTabName = config
-            .getRange(startRow + 3, 2)
+            .getRange(4, startCol + 1)
             .getValue()
             .toString()
             .trim();
-        var toInput = config.getRange(startRow + 4, 2).getValue();
+        var toInput = config.getRange(5, startCol + 1).getValue();
         var toTabName = config
-            .getRange(startRow + 5, 2)
+            .getRange(6, startCol + 1)
             .getValue()
             .toString()
             .trim();
@@ -236,15 +239,18 @@ function transferData() {
         var sourceSS = getSpreadsheetFromInput(fromInput);
         var targetSS = getSpreadsheetFromInput(toInput);
 
-        if (!sourceSS || !targetSS) continue; // Skip unconfigured/invalid blocks
+        if (!sourceSS || !targetSS) continue;
 
         var fromSheet = sourceSS.getSheetByName(fromTabName);
         var toSheet = targetSS.getSheetByName(toTabName);
 
         if (!fromSheet || !toSheet) continue;
 
-        // Cell mapping range for this block
-        var rawMappings = config.getRange(startRow + 8, 1, 3, 2).getValues();
+        // Read all mapping rows starting from Row 8 down to the end of the sheet
+        if (totalRows < 8) continue;
+        var rawMappings = config
+            .getRange(8, startCol, totalRows - 7, 2)
+            .getValues();
         var mappings = rawMappings.filter((r) => r[0] !== "" && r[1] !== "");
 
         if (mappings.length === 0) continue;
