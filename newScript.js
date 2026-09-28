@@ -3,13 +3,11 @@ function onOpen(e) {
     var mainSheet = SpreadsheetApp.getActiveSpreadsheet();
     var configSheet = mainSheet.getSheetByName("Config");
 
-    // Creates config if not present
     if (configSheet == null) {
         configSheet = mainSheet.insertSheet("Config");
         initConfig(configSheet);
     }
 
-    // Add custom menu bar
     SpreadsheetApp.getUi()
         .createMenu("Transfer")
         .addItem("Refresh Tab Dropdowns", "updateSheetDropdowns")
@@ -18,7 +16,7 @@ function onOpen(e) {
         .addToUi();
 }
 
-// Default initialization with 1 block
+// Default initialization
 function initConfig(configSheet) {
     configSheet.clear();
     generateTablesLoop(configSheet, 1);
@@ -44,7 +42,7 @@ function generateMultiplePartnerTables() {
     var configSheet = ss.getSheetByName("Config");
     if (!configSheet) configSheet = ss.insertSheet("Config");
 
-    configSheet.clear(); // Clear existing layout
+    configSheet.clear();
     generateTablesLoop(configSheet, count);
     ui.alert(
         "Successfully created " +
@@ -53,10 +51,10 @@ function generateMultiplePartnerTables() {
     );
 }
 
-// FOR LOOP: Creates X number of partner config tables SIDE-BY-SIDE (3 columns apart)
+// FOR LOOP: Creates partner tables side-by-side
 function generateTablesLoop(configSheet, totalTables) {
     var currentId = SpreadsheetApp.getActiveSpreadsheet().getId();
-    var startCol = 1; // Start at Column A (1)
+    var startCol = 1;
 
     for (var i = 1; i <= totalTables; i++) {
         // Header Banner
@@ -103,21 +101,20 @@ function generateTablesLoop(configSheet, totalTables) {
             .setBackground("#e8eaed");
         configSheet
             .getRange(7, startCol + 1)
-            .setValue("TO HEADER:")
+            .setValue("TO COL OR CELL (e.g. C or C5):")
             .setFontWeight("bold")
             .setBackground("#e8eaed");
 
         // Column widths
         configSheet.setColumnWidth(startCol, 240);
         configSheet.setColumnWidth(startCol + 1, 280);
-        configSheet.setColumnWidth(startCol + 2, 40); // Spacer column between tables
+        configSheet.setColumnWidth(startCol + 2, 40);
 
-        // Offset startCol by 3 columns for the next partner block (e.g. Cols 1-2, then 4-5, then 7-8)
         startCol += 3;
     }
 }
 
-// Helper function to resolve Spreadsheet object
+// Helper to open spreadsheet
 function getSpreadsheetFromInput(input) {
     if (!input) return null;
     var str = input.toString().trim();
@@ -134,7 +131,7 @@ function getSpreadsheetFromInput(input) {
     }
 }
 
-// Finds start columns for all partner banners in Row 1
+// Finds start columns for all partner banners
 function getPartnerBlockColumns(configSheet) {
     var cols = [];
     var lastCol = configSheet.getLastColumn();
@@ -143,13 +140,13 @@ function getPartnerBlockColumns(configSheet) {
     var rowValues = configSheet.getRange(1, 1, 1, lastCol).getValues()[0];
     for (var c = 0; c < rowValues.length; c++) {
         if (rowValues[c].toString().indexOf("--- PARTNER ") !== -1) {
-            cols.push(c + 1); // 1-based column index
+            cols.push(c + 1);
         }
     }
     return cols;
 }
 
-// FOR LOOP: Updates dropdowns for all side-by-side partner tables
+// Updates dropdowns for all tables
 function updateSheetDropdowns() {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var configSheet = ss.getSheetByName("Config");
@@ -169,7 +166,6 @@ function updateSheetDropdowns() {
         var sourceSS = getSpreadsheetFromInput(fromInput);
         var targetSS = getSpreadsheetFromInput(toInput);
 
-        // FROM TAB Dropdown
         if (sourceSS) {
             var sourceNames = sourceSS.getSheets().map((s) => s.getName());
             var sourceRule = SpreadsheetApp.newDataValidation()
@@ -182,7 +178,6 @@ function updateSheetDropdowns() {
             }
         }
 
-        // TO TAB Dropdown
         if (targetSS) {
             var targetNames = targetSS.getSheets().map((s) => s.getName());
             var targetRule = SpreadsheetApp.newDataValidation()
@@ -201,7 +196,28 @@ function updateSheetDropdowns() {
     );
 }
 
-// FOR LOOP: Reads dynamic mappings down to the last row for each column pair
+// Converts Column Letter (e.g. "A", "BC") or Cell Ref (e.g. "C5") to Column Number & Header Row
+function parseTargetReference(refStr) {
+    if (!refStr) return null;
+    var str = refStr.toString().trim().toUpperCase();
+
+    // Match pattern: Letters followed by optional Numbers (e.g., "C" or "C5")
+    var match = str.match(/^([A-Z]+)(\d*)$/);
+    if (!match) return null;
+
+    var colLetters = match[1];
+    var startRow = match[2] ? parseInt(match[2], 10) : 1; // Default to row 1 header if omitted
+
+    // Convert letter(s) to 1-based column index (A=1, B=2, C=3, AA=27...)
+    var colIndex = 0;
+    for (var i = 0; i < colLetters.length; i++) {
+        colIndex = colIndex * 26 + (colLetters.charCodeAt(i) - 64);
+    }
+
+    return { colIndex: colIndex, headerRow: startRow };
+}
+
+// Main Transfer Function using Direct Column/Cell Placement
 function transferData() {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var ui = SpreadsheetApp.getUi();
@@ -214,7 +230,6 @@ function transferData() {
     var successCount = 0;
     var totalRows = config.getLastRow();
 
-    // FOR LOOP: Runs data transfer for each side-by-side block
     for (var i = 0; i < blockCols.length; i++) {
         var startCol = blockCols[i];
 
@@ -246,7 +261,7 @@ function transferData() {
 
         if (!fromSheet || !toSheet) continue;
 
-        // Read all mapping rows starting from Row 8 down to the end of the sheet
+        // Read mapping entries starting from Row 8
         if (totalRows < 8) continue;
         var rawMappings = config
             .getRange(8, startCol, totalRows - 7, 2)
@@ -255,20 +270,43 @@ function transferData() {
 
         if (mappings.length === 0) continue;
 
-        var headers = toSheet
-            .getRange(1, 1, 1, toSheet.getLastColumn())
-            .getValues()[0];
-        var newRow = new Array(headers.length).fill("");
+        // Find the primary header row across all mappings
+        var baseHeaderRow = 1;
+        var parsedMappings = [];
 
-        mappings.forEach(([cellRef, headerName]) => {
-            var colIndex = headers.indexOf(headerName);
-            if (colIndex !== -1) {
-                newRow[colIndex] = fromSheet.getRange(cellRef).getValue();
-                fromSheet.getRange(cellRef).clearContent();
+        mappings.forEach(([sourceCell, targetRef]) => {
+            var parsed = parseTargetReference(targetRef);
+            if (parsed) {
+                if (parsed.headerRow > baseHeaderRow)
+                    baseHeaderRow = parsed.headerRow;
+                parsedMappings.push({
+                    sourceCell: sourceCell.toString().trim(),
+                    targetCol: parsed.colIndex,
+                });
             }
         });
 
-        toSheet.appendRow(newRow);
+        if (parsedMappings.length === 0) continue;
+
+        // Determine target append row (first empty row after the header)
+        var targetRow = baseHeaderRow + 1;
+        var firstTargetCol = parsedMappings[0].targetCol;
+
+        while (toSheet.getRange(targetRow, firstTargetCol).getValue() !== "") {
+            targetRow++;
+        }
+
+        // Transfer values into specific target cells
+        parsedMappings.forEach((item) => {
+            var val = fromSheet.getRange(item.sourceCell).getValue();
+            toSheet.getRange(targetRow, item.targetCol).setValue(val);
+        });
+
+        // Clear source fields
+        parsedMappings.forEach((item) => {
+            fromSheet.getRange(item.sourceCell).clearContent();
+        });
+
         successCount++;
     }
 
