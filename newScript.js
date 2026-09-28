@@ -11,7 +11,8 @@ function onOpen(e) {
     SpreadsheetApp.getUi()
         .createMenu("Transfer")
         .addItem("Refresh Tab Dropdowns", "updateSheetDropdowns")
-        .addItem("Generate Partner Tables", "generateMultiplePartnerTables")
+        .addItem("Add New Partner Table", "addNewPartnerTable")
+        .addItem("Reset & Rebuild All Tables", "resetAllPartnerTables")
         .addItem("Transfer All Form Data", "transferData")
         .addToUi();
 }
@@ -22,21 +23,95 @@ function initConfig(configSheet) {
     generateTablesLoop(configSheet, 1);
 }
 
-// Prompts user for how many partner tables to generate
-function generateMultiplePartnerTables() {
+// Appends ONE new Partner block to the right without erasing existing inputs
+function addNewPartnerTable() {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var configSheet = ss.getSheetByName("Config");
+    if (!configSheet) configSheet = ss.insertSheet("Config");
+
+    var blockCols = getPartnerBlockColumns(configSheet);
+    var nextPartnerNumber = blockCols.length + 1;
+    var startCol =
+        blockCols.length > 0 ? blockCols[blockCols.length - 1] + 3 : 1;
+    var currentId = ss.getId();
+
+    // Draw ONLY the new block
+    var titleRange = configSheet.getRange(1, startCol, 1, 2);
+    titleRange.merge();
+    titleRange.setValue(
+        "--- PARTNER " + nextPartnerNumber + " CONFIGURATION ---",
+    );
+    titleRange
+        .setFontWeight("bold")
+        .setBackground("#4a86e8")
+        .setFontColor("#ffffff")
+        .setHorizontalAlignment("center");
+
+    configSheet
+        .getRange(2, startCol)
+        .setValue("PARTNER NAME / LABEL:")
+        .setFontWeight("bold");
+    configSheet
+        .getRange(2, startCol + 1)
+        .setValue("Partner " + nextPartnerNumber);
+
+    configSheet
+        .getRange(3, startCol)
+        .setValue("FROM SPREADSHEET (URL or ID):")
+        .setFontWeight("bold");
+    configSheet.getRange(3, startCol + 1).setValue(currentId);
+
+    configSheet
+        .getRange(4, startCol)
+        .setValue("FROM TAB:")
+        .setFontWeight("bold");
+    configSheet
+        .getRange(5, startCol)
+        .setValue("TO SPREADSHEET (URL or ID):")
+        .setFontWeight("bold");
+    configSheet.getRange(6, startCol).setValue("TO TAB:").setFontWeight("bold");
+
+    configSheet
+        .getRange(7, startCol)
+        .setValue("FROM CELL:")
+        .setFontWeight("bold")
+        .setBackground("#e8eaed");
+    configSheet
+        .getRange(7, startCol + 1)
+        .setValue("TO COL OR CELL (e.g. C or C5):")
+        .setFontWeight("bold")
+        .setBackground("#e8eaed");
+
+    configSheet.setColumnWidth(startCol, 240);
+    configSheet.setColumnWidth(startCol + 1, 280);
+    configSheet.setColumnWidth(startCol + 2, 40);
+
+    SpreadsheetApp.getUi().alert(
+        "Added Partner " +
+            nextPartnerNumber +
+            " block! Existing table data was preserved.",
+    );
+}
+
+// Full reset/rebuild option (destroys current layout)
+function resetAllPartnerTables() {
     var ui = SpreadsheetApp.getUi();
+    var confirm = ui.alert(
+        "Warning",
+        "This will ERASE all current configurations and tables. Continue?",
+        ui.ButtonSet.YES_NO,
+    );
+    if (confirm !== ui.Button.YES) return;
+
     var response = ui.prompt(
-        "Generate Partner Configs",
-        "How many Partner tables do you want to create side-by-side?",
+        "Reset Configs",
+        "How many blank Partner tables do you want to start with?",
         ui.ButtonSet.OK_CANCEL,
     );
-
     if (response.getSelectedButton() !== ui.Button.OK) return;
 
     var count = parseInt(response.getResponseText().trim(), 10);
-    if (isNaN(count) || count < 1) {
-        return ui.alert("Please enter a valid number greater than 0.");
-    }
+    if (isNaN(count) || count < 1) return ui.alert("Invalid number.");
 
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var configSheet = ss.getSheetByName("Config");
@@ -51,13 +126,12 @@ function generateMultiplePartnerTables() {
     );
 }
 
-// FOR LOOP: Creates partner tables side-by-side
+// FOR LOOP: Helper to draw partner tables side-by-side
 function generateTablesLoop(configSheet, totalTables) {
     var currentId = SpreadsheetApp.getActiveSpreadsheet().getId();
     var startCol = 1;
 
     for (var i = 1; i <= totalTables; i++) {
-        // Header Banner
         var titleRange = configSheet.getRange(1, startCol, 1, 2);
         titleRange.merge();
         titleRange.setValue("--- PARTNER " + i + " CONFIGURATION ---");
@@ -67,7 +141,6 @@ function generateTablesLoop(configSheet, totalTables) {
             .setFontColor("#ffffff")
             .setHorizontalAlignment("center");
 
-        // Settings
         configSheet
             .getRange(2, startCol)
             .setValue("PARTNER NAME / LABEL:")
@@ -93,7 +166,6 @@ function generateTablesLoop(configSheet, totalTables) {
             .setValue("TO TAB:")
             .setFontWeight("bold");
 
-        // Mapping Headers
         configSheet
             .getRange(7, startCol)
             .setValue("FROM CELL:")
@@ -105,7 +177,6 @@ function generateTablesLoop(configSheet, totalTables) {
             .setFontWeight("bold")
             .setBackground("#e8eaed");
 
-        // Column widths
         configSheet.setColumnWidth(startCol, 240);
         configSheet.setColumnWidth(startCol + 1, 280);
         configSheet.setColumnWidth(startCol + 2, 40);
@@ -114,7 +185,7 @@ function generateTablesLoop(configSheet, totalTables) {
     }
 }
 
-// Helper to open spreadsheet
+// Helper to open spreadsheet by URL or ID
 function getSpreadsheetFromInput(input) {
     if (!input) return null;
     var str = input.toString().trim();
@@ -146,7 +217,7 @@ function getPartnerBlockColumns(configSheet) {
     return cols;
 }
 
-// Updates dropdowns for all tables
+// Updates tab dropdowns dynamically for all partner blocks
 function updateSheetDropdowns() {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var configSheet = ss.getSheetByName("Config");
@@ -196,19 +267,17 @@ function updateSheetDropdowns() {
     );
 }
 
-// Converts Column Letter (e.g. "A", "BC") or Cell Ref (e.g. "C5") to Column Number & Header Row
+// Converts Column Letter (e.g. "A", "C") or Cell Ref (e.g. "C5") to Column Number & Header Row
 function parseTargetReference(refStr) {
     if (!refStr) return null;
     var str = refStr.toString().trim().toUpperCase();
 
-    // Match pattern: Letters followed by optional Numbers (e.g., "C" or "C5")
     var match = str.match(/^([A-Z]+)(\d*)$/);
     if (!match) return null;
 
     var colLetters = match[1];
-    var startRow = match[2] ? parseInt(match[2], 10) : 1; // Default to row 1 header if omitted
+    var startRow = match[2] ? parseInt(match[2], 10) : 1;
 
-    // Convert letter(s) to 1-based column index (A=1, B=2, C=3, AA=27...)
     var colIndex = 0;
     for (var i = 0; i < colLetters.length; i++) {
         colIndex = colIndex * 26 + (colLetters.charCodeAt(i) - 64);
@@ -270,7 +339,6 @@ function transferData() {
 
         if (mappings.length === 0) continue;
 
-        // Find the primary header row across all mappings
         var baseHeaderRow = 1;
         var parsedMappings = [];
 
@@ -288,7 +356,7 @@ function transferData() {
 
         if (parsedMappings.length === 0) continue;
 
-        // Determine target append row (first empty row after the header)
+        // Find first empty row in target column after the header row
         var targetRow = baseHeaderRow + 1;
         var firstTargetCol = parsedMappings[0].targetCol;
 
@@ -296,13 +364,13 @@ function transferData() {
             targetRow++;
         }
 
-        // Transfer values into specific target cells
+        // Write values to target
         parsedMappings.forEach((item) => {
             var val = fromSheet.getRange(item.sourceCell).getValue();
             toSheet.getRange(targetRow, item.targetCol).setValue(val);
         });
 
-        // Clear source fields
+        // Clear source form fields
         parsedMappings.forEach((item) => {
             fromSheet.getRange(item.sourceCell).clearContent();
         });
