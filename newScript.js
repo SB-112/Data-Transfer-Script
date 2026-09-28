@@ -12,36 +12,113 @@ function onOpen(e) {
     // Add custom menu bar
     SpreadsheetApp.getUi()
         .createMenu("Transfer")
-        .addItem("Refresh Sheet Dropdowns", "updateSheetDropdowns")
-        .addItem("Transfer Form Data", "transferData")
+        .addItem("Refresh Tab Dropdowns", "updateSheetDropdowns")
+        .addItem("Generate Partner Tables", "generateMultiplePartnerTables")
+        .addItem("Transfer All Form Data", "transferData")
         .addToUi();
 }
 
-// Initializes the Config tab if newly created
+// Default initialization with 1 block
 function initConfig(configSheet) {
-    var currentId = SpreadsheetApp.getActiveSpreadsheet().getId();
-
-    configSheet.getRange("A1").setValue("FROM SPREADSHEET (URL or ID):");
-    configSheet.getRange("B1").setValue(currentId); // Defaults to current form sheet
-
-    configSheet.getRange("A2").setValue("FROM TAB:");
-    configSheet.getRange("A3").setValue("TO SPREADSHEET (URL or ID):");
-    configSheet.getRange("A4").setValue("TO TAB:");
-
-    configSheet.getRange("A6").setValue("FROM CELL:");
-    configSheet.getRange("B6").setValue("TO HEADER:");
-
-    configSheet.getRange("A1:A4").setFontWeight("bold");
-    configSheet
-        .getRange("A6:B6")
-        .setFontWeight("bold")
-        .setBackground("#e8eaed");
-
-    configSheet.setColumnWidth(1, 220);
-    configSheet.setColumnWidth(2, 300);
+    configSheet.clear();
+    generateTablesLoop(configSheet, 1);
 }
 
-// Helper function to open a Spreadsheet from either an ID or a full URL
+// Prompts user for how many partner tables to generate
+function generateMultiplePartnerTables() {
+    var ui = SpreadsheetApp.getUi();
+    var response = ui.prompt(
+        "Generate Partner Configs",
+        "How many Partner tables do you want to create?",
+        ui.ButtonSet.OK_CANCEL,
+    );
+
+    if (response.getSelectedButton() !== ui.Button.OK) return;
+
+    var count = parseInt(response.getResponseText().trim(), 10);
+    if (isNaN(count) || count < 1) {
+        return ui.alert("Please enter a valid number greater than 0.");
+    }
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var configSheet = ss.getSheetByName("Config");
+    if (!configSheet) configSheet = ss.insertSheet("Config");
+
+    configSheet.clear(); // Clear existing layout
+    generateTablesLoop(configSheet, count); // Loop to create tables
+    ui.alert(
+        "Successfully created " + count + " Partner configuration table(s)!",
+    );
+}
+
+// FOR LOOP: Creates X number of identical partner config tables
+function generateTablesLoop(configSheet, totalTables) {
+    var currentId = SpreadsheetApp.getActiveSpreadsheet().getId();
+    var startRow = 1;
+
+    for (var i = 1; i <= totalTables; i++) {
+        // Header Banner
+        var titleRange = configSheet.getRange(startRow, 1, 1, 2);
+        titleRange.merge();
+        titleRange.setValue("--- PARTNER " + i + " CONFIGURATION ---");
+        titleRange
+            .setFontWeight("bold")
+            .setBackground("#4a86e8")
+            .setFontColor("#ffffff")
+            .setHorizontalAlignment("center");
+
+        // Table Fields
+        configSheet
+            .getRange(startRow + 1, 1)
+            .setValue("PARTNER NAME / LABEL:")
+            .setFontWeight("bold");
+        configSheet.getRange(startRow + 1, 2).setValue("Partner " + i);
+
+        configSheet
+            .getRange(startRow + 2, 1)
+            .setValue("FROM SPREADSHEET (URL or ID):")
+            .setFontWeight("bold");
+        configSheet.getRange(startRow + 2, 2).setValue(currentId);
+
+        configSheet
+            .getRange(startRow + 3, 1)
+            .setValue("FROM TAB:")
+            .setFontWeight("bold");
+        configSheet
+            .getRange(startRow + 4, 1)
+            .setValue("TO SPREADSHEET (URL or ID):")
+            .setFontWeight("bold");
+        configSheet
+            .getRange(startRow + 5, 1)
+            .setValue("TO TAB:")
+            .setFontWeight("bold");
+
+        // Mapping Headers
+        configSheet
+            .getRange(startRow + 7, 1)
+            .setValue("FROM CELL:")
+            .setFontWeight("bold")
+            .setBackground("#e8eaed");
+        configSheet
+            .getRange(startRow + 7, 2)
+            .setValue("TO HEADER:")
+            .setFontWeight("bold")
+            .setBackground("#e8eaed");
+
+        // 3 Blank Mapping Rows
+        configSheet
+            .getRange(startRow + 8, 1, 3, 2)
+            .setBorder(true, true, true, true, true, true);
+
+        // Offset startRow for the next table iteration in the loop
+        startRow += 13;
+    }
+
+    configSheet.setColumnWidth(1, 250);
+    configSheet.setColumnWidth(2, 350);
+}
+
+// Helper function to resolve Spreadsheet object
 function getSpreadsheetFromInput(input) {
     if (!input) return null;
     var str = input.toString().trim();
@@ -58,120 +135,140 @@ function getSpreadsheetFromInput(input) {
     }
 }
 
-// Dynamically updates tab dropdowns for B2 (FROM) and B4 (TO)
+// Finds start rows for all partner banners
+function getPartnerBlockRows(configSheet) {
+    var textFinder = configSheet.createTextFinder("--- PARTNER ");
+    var results = textFinder.findAll();
+    var rows = [];
+
+    for (var i = 0; i < results.length; i++) {
+        rows.push(results[i].getRow());
+    }
+    return rows;
+}
+
+// FOR LOOP: Updates dropdowns for all generated partner tables
 function updateSheetDropdowns() {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var configSheet = ss.getSheetByName("Config");
     if (!configSheet) return;
 
-    var fromInput = configSheet.getRange("B1").getValue();
-    var toInput = configSheet.getRange("B3").getValue();
+    var blockRows = getPartnerBlockRows(configSheet);
+    if (blockRows.length === 0)
+        return SpreadsheetApp.getUi().alert(
+            "No Partner blocks found in Config!",
+        );
 
-    var sourceSS = getSpreadsheetFromInput(fromInput);
-    var targetSS = getSpreadsheetFromInput(toInput);
+    for (var k = 0; k < blockRows.length; k++) {
+        var startRow = blockRows[k];
+        var fromInput = configSheet.getRange(startRow + 2, 2).getValue();
+        var toInput = configSheet.getRange(startRow + 4, 2).getValue();
 
-    // Set FROM TAB Dropdown (Cell B2)
-    if (sourceSS) {
-        var sourceNames = sourceSS.getSheets().map((s) => s.getName());
-        var sourceRule = SpreadsheetApp.newDataValidation()
-            .requireValueInList(sourceNames, true)
-            .setAllowInvalid(false)
-            .build();
-        configSheet.getRange("B2").setDataValidation(sourceRule);
-        if (configSheet.getRange("B2").getValue() === "") {
-            configSheet.getRange("B2").setValue(sourceNames[0]);
+        var sourceSS = getSpreadsheetFromInput(fromInput);
+        var targetSS = getSpreadsheetFromInput(toInput);
+
+        // FROM TAB Dropdown
+        if (sourceSS) {
+            var sourceNames = sourceSS.getSheets().map((s) => s.getName());
+            var sourceRule = SpreadsheetApp.newDataValidation()
+                .requireValueInList(sourceNames, true)
+                .setAllowInvalid(false)
+                .build();
+            configSheet.getRange(startRow + 3, 2).setDataValidation(sourceRule);
+            if (configSheet.getRange(startRow + 3, 2).getValue() === "") {
+                configSheet.getRange(startRow + 3, 2).setValue(sourceNames[0]);
+            }
         }
-    } else {
-        configSheet.getRange("B2").clearDataValidation();
+
+        // TO TAB Dropdown
+        if (targetSS) {
+            var targetNames = targetSS.getSheets().map((s) => s.getName());
+            var targetRule = SpreadsheetApp.newDataValidation()
+                .requireValueInList(targetNames, true)
+                .setAllowInvalid(false)
+                .build();
+            configSheet.getRange(startRow + 5, 2).setDataValidation(targetRule);
+            if (configSheet.getRange(startRow + 5, 2).getValue() === "") {
+                configSheet.getRange(startRow + 5, 2).setValue(targetNames[0]);
+            }
+        }
     }
 
-    // Set TO TAB Dropdown (Cell B4)
-    if (targetSS) {
-        var targetNames = targetSS.getSheets().map((s) => s.getName());
-        var targetRule = SpreadsheetApp.newDataValidation()
-            .requireValueInList(targetNames, true)
-            .setAllowInvalid(false)
-            .build();
-        configSheet.getRange("B4").setDataValidation(targetRule);
-        if (configSheet.getRange("B4").getValue() === "") {
-            configSheet.getRange("B4").setValue(targetNames[0]);
-        }
-    } else {
-        configSheet.getRange("B4").clearDataValidation();
-    }
-
-    SpreadsheetApp.getUi().alert("Sheet tab dropdowns updated!");
+    SpreadsheetApp.getUi().alert(
+        "Updated dropdowns for all " + blockRows.length + " table(s)!",
+    );
 }
 
-// Executes data transfer from this form into the summary table
+// FOR LOOP: Loops through every table block and processes the transfers
 function transferData() {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ui = SpreadsheetApp.getUi();
     var config = ss.getSheetByName("Config");
-    if (!config)
-        return SpreadsheetApp.getUi().alert("Config Sheet is Missing!");
+    if (!config) return ui.alert("Config Sheet is Missing!");
 
-    var fromInput = config.getRange("B1").getValue();
-    var fromTabName = config.getRange("B2").getValue().toString().trim();
-    var toInput = config.getRange("B3").getValue();
-    var toTabName = config.getRange("B4").getValue().toString().trim();
+    var blockRows = getPartnerBlockRows(config);
+    if (blockRows.length === 0) return ui.alert("No Partner blocks found!");
 
-    // Resolve source and target spreadsheets
-    var sourceSS = getSpreadsheetFromInput(fromInput);
-    var targetSS = getSpreadsheetFromInput(toInput);
+    var successCount = 0;
 
-    if (!sourceSS)
-        return SpreadsheetApp.getUi().alert(
-            "Error: Invalid 'FROM' Spreadsheet URL or ID.",
-        );
-    if (!targetSS)
-        return SpreadsheetApp.getUi().alert(
-            "Error: Invalid 'TO' Spreadsheet URL or ID.",
-        );
+    // FOR LOOP: Runs data transfer for each generated table
+    for (var i = 0; i < blockRows.length; i++) {
+        var startRow = blockRows[i];
 
-    var fromSheet = sourceSS.getSheetByName(fromTabName);
-    var toSheet = targetSS.getSheetByName(toTabName);
+        var partnerName = config
+            .getRange(startRow + 1, 2)
+            .getValue()
+            .toString()
+            .trim();
+        var fromInput = config.getRange(startRow + 2, 2).getValue();
+        var fromTabName = config
+            .getRange(startRow + 3, 2)
+            .getValue()
+            .toString()
+            .trim();
+        var toInput = config.getRange(startRow + 4, 2).getValue();
+        var toTabName = config
+            .getRange(startRow + 5, 2)
+            .getValue()
+            .toString()
+            .trim();
 
-    if (!fromSheet)
-        return SpreadsheetApp.getUi().alert(
-            "Error: Source tab '" + fromTabName + "' not found.",
-        );
-    if (!toSheet)
-        return SpreadsheetApp.getUi().alert(
-            "Error: Target tab '" + toTabName + "' not found.",
-        );
+        var sourceSS = getSpreadsheetFromInput(fromInput);
+        var targetSS = getSpreadsheetFromInput(toInput);
 
-    // Fetch cell mappings starting from row 7
-    var lastRow = config.getLastRow();
-    if (lastRow < 7)
-        return SpreadsheetApp.getUi().alert(
-            "Error: No cell mappings set in row 7 onwards.",
-        );
+        if (!sourceSS || !targetSS) continue; // Skip unconfigured/invalid blocks
 
-    var rawMappings = config.getRange(7, 1, lastRow - 6, 2).getValues();
-    var mappings = rawMappings.filter((r) => r[0] !== "" && r[1] !== "");
-    if (mappings.length === 0)
-        return SpreadsheetApp.getUi().alert(
-            "Error: No valid cell mappings found.",
-        );
+        var fromSheet = sourceSS.getSheetByName(fromTabName);
+        var toSheet = targetSS.getSheetByName(toTabName);
 
-    // Read destination headers & create empty row array
-    var headers = toSheet
-        .getRange(1, 1, 1, toSheet.getLastColumn())
-        .getValues()[0];
-    var newRow = new Array(headers.length).fill("");
+        if (!fromSheet || !toSheet) continue;
 
-    // Copy values from form cells to header slots & clear form fields
-    mappings.forEach(([cellRef, headerName]) => {
-        var colIndex = headers.indexOf(headerName);
-        if (colIndex !== -1) {
-            newRow[colIndex] = fromSheet.getRange(cellRef).getValue();
-            fromSheet.getRange(cellRef).clearContent();
-        }
-    });
+        // Cell mapping range for this block
+        var rawMappings = config.getRange(startRow + 8, 1, 3, 2).getValues();
+        var mappings = rawMappings.filter((r) => r[0] !== "" && r[1] !== "");
 
-    // Append new record to summary table
-    toSheet.appendRow(newRow);
-    SpreadsheetApp.getUi().alert(
-        "Success: Form data transferred and fields reset!",
+        if (mappings.length === 0) continue;
+
+        var headers = toSheet
+            .getRange(1, 1, 1, toSheet.getLastColumn())
+            .getValues()[0];
+        var newRow = new Array(headers.length).fill("");
+
+        mappings.forEach(([cellRef, headerName]) => {
+            var colIndex = headers.indexOf(headerName);
+            if (colIndex !== -1) {
+                newRow[colIndex] = fromSheet.getRange(cellRef).getValue();
+                fromSheet.getRange(cellRef).clearContent();
+            }
+        });
+
+        toSheet.appendRow(newRow);
+        successCount++;
+    }
+
+    ui.alert(
+        "Successfully processed and transferred data for " +
+            successCount +
+            " Partner(s)!",
     );
 }
