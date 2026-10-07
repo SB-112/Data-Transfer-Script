@@ -4,20 +4,21 @@
 // Platform: WPS Spreadsheets (ET) / JS Macro (JSA)
 // ------------------------------------------------------------
 // Paste into a single JS Module in the WPS Macro Editor.
-// Save the workbook as .xlsm or .et so macros persist.
+// Save as .xlsm (Excel Macro-Enabled Workbook).
+// Config values must be FILE PATHS, not URLs.
 // ============================================================
 
 const VERSION = "1.0.1";
 
-// WPS/Office constants (used instead of Excel enums for clarity)
-const xlNone = -4142;
-const xlCenter = -4108;
-const xlValidateList = 3;
+// WPS/Office constants
+const xlNone           = -4142;
+const xlCenter         = -4108;
+const xlValidateList   = 3;
 const xlValidAlertStop = 1;
-const xlBetween = 1;
-const vbYesNo = 4;
-const vbYes = 6;
-const msoControlPopup = 10;
+const xlBetween        = 1;
+const vbYesNo          = 4;
+const vbYes            = 6;
+const msoControlPopup  = 10;
 
 // ============================================================
 // SECTION 1: UTILITIES
@@ -63,8 +64,8 @@ function parseSourceCell(refStr) {
 }
 
 /**
- * Opens a spreadsheet by name, path, or full path.
- * Returns null on failure. Reuses already-open workbooks.
+ * Opens a workbook by file path. If already open, returns the existing instance.
+ * Returns null on failure. Path may be absolute or relative to the engine's folder.
  */
 function getSpreadsheetFromInput(input) {
     if (input === null || input === undefined) return null;
@@ -72,6 +73,7 @@ function getSpreadsheetFromInput(input) {
     if (!str) return null;
 
     try {
+        // Reuse if already open
         for (var i = 1; i <= Application.Workbooks.Count; i++) {
             var wb = Application.Workbooks.Item(i);
             if (wb.Name === str || wb.FullName === str) {
@@ -94,20 +96,27 @@ function getSheetOrNull(workbook, name) {
     }
 }
 
-/** Safe ActiveWorkbook / Config sheet accessor. */
+/** Safe Config sheet accessor on the engine workbook. */
 function getConfigSheet() {
     var wb = Application.ActiveWorkbook;
     return getSheetOrNull(wb, "Config");
+}
+
+/** Closes a workbook if it was opened by us (not the engine itself). */
+function closeIfNotEngine(wb, engineName) {
+    try {
+        if (wb && wb.Name !== engineName) {
+            wb.Close(false);
+        }
+    } catch (e) {
+        // ignore
+    }
 }
 
 // ============================================================
 // SECTION 2: CONFIG PARSER
 // ============================================================
 
-/**
- * Reads the entire Config sheet in one call and returns
- * an array of route descriptor objects.
- */
 function parseConfig() {
     var configSheet = getConfigSheet();
     if (!configSheet) throw new Error("Config sheet is missing.");
@@ -123,13 +132,13 @@ function parseConfig() {
     var lastCol = usedRange.Column + usedRange.Columns.Count - 1;
     if (lastRow < 1 || lastCol < 1) return [];
 
-    // Batched read -> 2D array [rows][cols], 0-based
+    // Batched read — 2D array [rows][cols], 0-based
     var grid = configSheet.Range(
         configSheet.Cells(1, 1),
-        configSheet.Cells(lastRow, lastCol),
+        configSheet.Cells(lastRow, lastCol)
     ).Value2;
 
-    // Locate route banner columns from row 1
+    // Locate route banner columns in row 1
     var blockCols = [];
     for (var c = 0; c < grid[0].length; c++) {
         if (String(grid[0][c]).indexOf("--- ROUTE ") !== -1) {
@@ -144,7 +153,7 @@ function parseConfig() {
 
         var route = {
             index: i,
-            startCol: col + 1, // 1-based
+            startCol: col + 1,
             routeName: String(grid[1][valueCol] || "").trim(),
             fromInput: grid[2][valueCol],
             fromTabName: String(grid[3][valueCol] || "").trim(),
@@ -186,7 +195,7 @@ function getRouteBlockColumns(configSheet) {
 
     var row1 = configSheet.Range(
         configSheet.Cells(1, 1),
-        configSheet.Cells(1, lastCol),
+        configSheet.Cells(1, lastCol)
     ).Value2[0];
 
     var cols = [];
@@ -200,11 +209,6 @@ function getRouteBlockColumns(configSheet) {
 // SECTION 3: VALIDATOR
 // ============================================================
 
-/**
- * Validates every route. Returns:
- *   { valid: [routeIndex...],
- *     invalid: [{ index, route, errors: [string] }] }
- */
 function validateConfig(routes) {
     var configSheet = getConfigSheet();
     var result = { valid: [], invalid: [] };
@@ -228,9 +232,7 @@ function validateConfig(routes) {
         markCell(configSheet, 5, startCol + 1, !targetSS);
 
         // FROM TAB
-        var srcSheet = sourceSS
-            ? getSheetOrNull(sourceSS, r.fromTabName)
-            : null;
+        var srcSheet = sourceSS ? getSheetOrNull(sourceSS, r.fromTabName) : null;
         if (sourceSS && !srcSheet) {
             errors.push('FROM TAB "' + r.fromTabName + '" not found.');
         } else if (!sourceSS && r.fromTabName) {
@@ -265,20 +267,14 @@ function validateConfig(routes) {
 
             if (badSrc) {
                 errors.push(
-                    "Row " +
-                        rowNum +
-                        ': invalid FROM CELL "' +
-                        m.sourceCellRef +
-                        '".',
+                    "Row " + rowNum +
+                    ': invalid FROM CELL "' + m.sourceCellRef + '".'
                 );
             }
             if (badTgt) {
                 errors.push(
-                    "Row " +
-                        rowNum +
-                        ': invalid TO reference "' +
-                        m.targetRef +
-                        '".',
+                    "Row " + rowNum +
+                    ': invalid TO reference "' + m.targetRef + '".'
                 );
             }
 
@@ -286,11 +282,9 @@ function validateConfig(routes) {
                 headerRows[m.headerRow] = true;
                 if (seenTargetCols[m.targetCol]) {
                     errors.push(
-                        "Row " +
-                            rowNum +
-                            ': TO column "' +
-                            m.targetRef +
-                            '" is used more than once in this route — data would overwrite.',
+                        "Row " + rowNum +
+                        ': TO column "' + m.targetRef +
+                        '" is used more than once in this route — data would overwrite.'
                     );
                 }
                 seenTargetCols[m.targetCol] = true;
@@ -301,8 +295,8 @@ function validateConfig(routes) {
         if (distinctHeaders.length > 1) {
             errors.push(
                 "Mappings point to different header rows (" +
-                    distinctHeaders.join(", ") +
-                    "). All TO cells in one route must share the same header row.",
+                distinctHeaders.join(", ") +
+                "). All TO cells in one route must share the same header row."
             );
         }
 
@@ -313,13 +307,12 @@ function validateConfig(routes) {
     return result;
 }
 
-/** Paints a config cell red (#f4cccc) if bad, default if good. */
+/** Paints a config cell red if bad, default if good. */
 function markCell(sheet, row, col, isBad) {
     try {
         var cell = sheet.Cells(row, col);
         if (isBad) {
-            // BGR numeric for #f4cccc
-            cell.Interior.Color = 13421772;
+            cell.Interior.Color = 13421772; // BGR for #f4cccc
         } else {
             cell.Interior.ColorIndex = xlNone;
         }
@@ -334,6 +327,7 @@ function markCell(sheet, row, col, isBad) {
 
 /** Main entry point — Transfer Data menu item. */
 function transferData() {
+    var engineName = Application.ActiveWorkbook.Name;
     var routes;
 
     try {
@@ -350,10 +344,8 @@ function transferData() {
 
     if (validation.valid.length === 0) {
         return MsgBox(
-            "All " +
-                routes.length +
-                " route(s) failed validation.\n" +
-                "Check the red cells in the Config tab.",
+            "All " + routes.length + " route(s) failed validation.\n" +
+            "Check the red cells in the Config tab."
         );
     }
 
@@ -366,12 +358,12 @@ function transferData() {
     validation.valid.forEach(function (idx) {
         var r = routes[idx];
         try {
-            var outcome = transferRoute(r);
+            var outcome = transferRoute(r, engineName);
             if (outcome === "wrote") successCount++;
             else if (outcome === "empty") skippedEmpty++;
         } catch (err) {
             runtimeErrors.push(
-                (r.routeName || "Route " + (idx + 1)) + ": " + err.message,
+                (r.routeName || "Route " + (idx + 1)) + ": " + err.message
             );
         }
     });
@@ -386,7 +378,7 @@ function transferData() {
         lines.push("Skipped (no data): " + skippedEmpty + ".");
     if (validation.invalid.length > 0) {
         lines.push(
-            "Skipped (invalid config): " + validation.invalid.length + ".",
+            "Skipped (invalid config): " + validation.invalid.length + "."
         );
     }
     if (runtimeErrors.length > 0) {
@@ -400,8 +392,9 @@ function transferData() {
 /**
  * Transfers one route.
  * Returns "wrote", "empty", or throws on unexpected error.
+ * Closes source/target workbooks after transfer if they aren't the engine.
  */
-function transferRoute(r) {
+function transferRoute(r, engineName) {
     var sourceSS = getSpreadsheetFromInput(r.fromInput);
     var targetSS = getSpreadsheetFromInput(r.toInput);
     if (!sourceSS || !targetSS)
@@ -412,37 +405,35 @@ function transferRoute(r) {
     if (!srcSheet || !tgtSheet)
         throw new Error("Source or target tab missing.");
 
-    // --- Read all source cells ---
+    // Read all source cells
     var srcValues = r.mappings.map(function (m) {
         return srcSheet.Range(m.sourceCellRef).Value2;
     });
 
-    // --- Skip if every source cell is empty ---
+    // Skip if every source cell is empty
     var hasAnyData = srcValues.some(function (v) {
         return v !== "" && v !== null && v !== undefined;
     });
-    if (!hasAnyData) return "empty";
+    if (!hasAnyData) {
+        closeIfNotEngine(sourceSS, engineName);
+        closeIfNotEngine(targetSS, engineName);
+        return "empty";
+    }
 
-    // --- Scan start row = header row + 1 ---
+    // Scan start row = header row + 1
     var headerRow = r.mappings[0].headerRow;
     var startRow = headerRow + 1;
 
-    // --- Target columns (sorted, unique) ---
+    // Target columns (sorted, unique)
     var targetCols = r.mappings
-        .map(function (m) {
-            return m.targetCol;
-        })
-        .filter(function (v, i, a) {
-            return a.indexOf(v) === i;
-        })
-        .sort(function (a, b) {
-            return a - b;
-        });
+        .map(function (m) { return m.targetCol; })
+        .filter(function (v, i, a) { return a.indexOf(v) === i; })
+        .sort(function (a, b) { return a - b; });
 
-    // --- Find first empty row ---
+    // Find first empty row
     var targetRow = findFirstEmptyRow(tgtSheet, startRow, targetCols);
 
-    // --- Build row array and write in one call ---
+    // Build row array and write in one call
     var minCol = targetCols[0];
     var maxCol = targetCols[targetCols.length - 1];
     var width = maxCol - minCol + 1;
@@ -454,22 +445,29 @@ function transferRoute(r) {
 
     tgtSheet.Range(
         tgtSheet.Cells(targetRow, minCol),
-        tgtSheet.Cells(targetRow, maxCol),
+        tgtSheet.Cells(targetRow, maxCol)
     ).Value2 = [rowArr];
 
-    // --- Clear all source cells ---
+    // Save target before closing
+    try { targetSS.Save(); } catch (e) {}
+
+    // Clear source cells
     r.mappings.forEach(function (m) {
-        try {
-            srcSheet.Range(m.sourceCellRef).ClearContents();
-        } catch (e) {}
+        try { srcSheet.Range(m.sourceCellRef).ClearContents(); } catch (e) {}
     });
+
+    // Save source before closing
+    try { sourceSS.Save(); } catch (e) {}
+
+    // Close non-engine workbooks
+    closeIfNotEngine(sourceSS, engineName);
+    closeIfNotEngine(targetSS, engineName);
 
     return "wrote";
 }
 
 /**
- * Returns first row >= startRow where every column in `cols`
- * is empty. Reads the candidate block in one call.
+ * Returns first row >= startRow where every column in `cols` is empty.
  * Hard-capped at 10,000 rows.
  */
 function findFirstEmptyRow(sheet, startRow, cols) {
@@ -484,10 +482,9 @@ function findFirstEmptyRow(sheet, startRow, cols) {
 
     var block = sheet.Range(
         sheet.Cells(startRow, minCol),
-        sheet.Cells(startRow + height - 1, maxCol),
+        sheet.Cells(startRow + height - 1, maxCol)
     ).Value2;
 
-    // Value2 may return a scalar if the range is 1x1
     if (!block || !block.length) return startRow;
 
     for (var r = 0; r < block.length; r++) {
@@ -518,9 +515,7 @@ function Application_WorkbookOpen(wk) {
         initConfig(configSheet);
     }
 
-    try {
-        CommandBars("Transfer").Delete();
-    } catch (e) {}
+    try { CommandBars("Transfer").Delete(); } catch (e) {}
 
     var menuBar = CommandBars.Add("Transfer");
     menuBar.Visible = true;
@@ -584,13 +579,13 @@ function validateConfigMenu() {
 function drawRouteBlock(configSheet, routeNumber, startCol, currentId) {
     var titleRange = configSheet.Range(
         configSheet.Cells(1, startCol),
-        configSheet.Cells(1, startCol + 1),
+        configSheet.Cells(1, startCol + 1)
     );
     titleRange.Merge();
     titleRange.Value2 = "--- ROUTE " + routeNumber + " CONFIGURATION ---";
     titleRange.Font.Bold = true;
-    titleRange.Interior.Color = 14600616; // #4a86e8 approx in BGR
-    titleRange.Font.Color = 16777215; // white
+    titleRange.Interior.Color = 14600616; // #4a86e8 approx BGR
+    titleRange.Font.Color = 16777215;     // white
     titleRange.HorizontalAlignment = xlCenter;
 
     var rows = [
@@ -613,7 +608,7 @@ function drawRouteBlock(configSheet, routeNumber, startCol, currentId) {
     var h1 = configSheet.Cells(7, startCol);
     h1.Value2 = "FROM CELL:";
     h1.Font.Bold = true;
-    h1.Interior.Color = 15396585; // #e8eaed approx
+    h1.Interior.Color = 15396585;
 
     var h2 = configSheet.Cells(7, startCol + 1);
     h2.Value2 = "TO COL OR CELL (e.g. C or C4):";
@@ -641,12 +636,14 @@ function addNewRoute() {
 
     var blockCols = getRouteBlockColumns(configSheet);
     var nextRouteNumber = blockCols.length + 1;
-    var startCol =
-        blockCols.length > 0 ? blockCols[blockCols.length - 1] + 3 : 1;
+    var startCol = blockCols.length > 0
+        ? blockCols[blockCols.length - 1] + 3
+        : 1;
 
     drawRouteBlock(configSheet, nextRouteNumber, startCol, wb.Name);
     MsgBox(
-        "Added Route " + nextRouteNumber + " block. Existing data preserved.",
+        "Added Route " + nextRouteNumber +
+        " block. Existing data preserved."
     );
 }
 
@@ -658,7 +655,7 @@ function deleteRoute() {
     if (wb.ActiveSheet.Name !== "Config") {
         return MsgBox(
             "Open the Config tab and click a cell inside the route " +
-                "you want to delete, then try again.",
+            "you want to delete, then try again."
         );
     }
 
@@ -677,41 +674,34 @@ function deleteRoute() {
     if (targetStartCol === null) {
         return MsgBox(
             "That cell isn't inside a route block. Click a cell inside " +
-                "the route you want to delete.",
+            "the route you want to delete."
         );
     }
 
-    var routeName =
-        String(configSheet.Cells(2, targetStartCol + 1).Value2 || "").trim() ||
-        "Route at column " + targetStartCol;
+    var routeName = String(
+        configSheet.Cells(2, targetStartCol + 1).Value2 || ""
+    ).trim() || "Route at column " + targetStartCol;
 
     var confirm = MsgBox(
         'Delete "' + routeName + '"?\n\nThis cannot be undone.',
-        vbYesNo,
+        vbYesNo
     );
     if (confirm !== vbYes) return;
 
-    // Physically delete the 3 columns of this block.
-    configSheet
-        .Range(
-            configSheet.Columns(targetStartCol),
-            configSheet.Columns(targetStartCol + 2),
-        )
-        .Delete();
+    configSheet.Range(
+        configSheet.Columns(targetStartCol),
+        configSheet.Columns(targetStartCol + 2)
+    ).Delete();
 
     renumberRouteBlocks(configSheet);
 
     var remaining = getRouteBlockColumns(configSheet).length;
     MsgBox(
-        'Route "' +
-            routeName +
-            '" deleted.\n' +
-            remaining +
-            " route(s) remaining.",
+        'Route "' + routeName + '" deleted.\n' +
+        remaining + " route(s) remaining."
     );
 }
 
-/** Rewrites every route banner in row 1 sequentially. */
 function renumberRouteBlocks(configSheet) {
     var blockCols = getRouteBlockColumns(configSheet);
     for (var i = 0; i < blockCols.length; i++) {
@@ -722,7 +712,10 @@ function renumberRouteBlocks(configSheet) {
 }
 
 function resetAllRoutes() {
-    var confirm = MsgBox("This will ERASE all Config data. Continue?", vbYesNo);
+    var confirm = MsgBox(
+        "This will ERASE all Config data. Continue?",
+        vbYesNo
+    );
     if (confirm !== vbYes) return;
 
     var countStr = InputBox("How many blank routes?");
@@ -764,6 +757,10 @@ function updateSheetDropdowns() {
 
         if (sourceSS) applyTabDropdown(configSheet, sourceSS, 4, startCol + 1);
         if (targetSS) applyTabDropdown(configSheet, targetSS, 6, startCol + 1);
+
+        // Close them — dropdowns only need names
+        if (sourceSS && sourceSS.Name !== wb.Name) try { sourceSS.Close(false); } catch (e) {}
+        if (targetSS && targetSS.Name !== wb.Name) try { targetSS.Close(false); } catch (e) {}
     }
 
     MsgBox("Updated dropdowns for " + blockCols.length + " route(s).");
@@ -778,15 +775,13 @@ function applyTabDropdown(configSheet, workbook, row, col) {
 
     var cell = configSheet.Cells(row, col);
 
-    try {
-        cell.Validation.Delete();
-    } catch (e) {}
+    try { cell.Validation.Delete(); } catch (e) {}
 
     cell.Validation.Add(
         xlValidateList,
         xlValidAlertStop,
         xlBetween,
-        names.join(","),
+        names.join(",")
     );
     cell.Validation.InCellDropdown = true;
     cell.Validation.IgnoreBlank = true;
