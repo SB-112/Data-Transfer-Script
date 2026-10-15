@@ -5,8 +5,8 @@ destination summary spreadsheet — one click instead of manual retyping.
 
 Two versions are included:
 
-- **Google Apps Script** (`apps-script/`) — for Google Sheets
-- **WPS JS Macro** (`wps/`) — for WPS Office spreadsheets
+- **Google Apps Script** (`googleScript.js`) — for Google Sheets
+- **WPS JS Macro** (`wpsScript.js`) — for WPS Office spreadsheets
 
 Pick whichever matches your office's platform.
 
@@ -23,6 +23,7 @@ However, the **architecture, design, and problem-solving** are original:
 - The config-driven routing concept
 - The multi-row group handling logic
 - The append-to-first-empty-row strategy
+- The dropdown-driven destination routing
 - The overall workflow and structure
 
 AI was a tool; the design decisions were mine.
@@ -102,35 +103,51 @@ install one.
 2. Go to **Tools → Macros → Edit Macros** (or **Developer → Macros**)
 3. Paste the contents of `wpsScript.js`
 4. Save the workbook as `.xlsm` (macro-enabled)
-5. Assign the macro `transferFormToSummary` to a button (or run it via Developer → Macros)
+5. Assign the macro `transferFormToSummary` to a button on each form tab
+6. Click the button to transfer
 
 > To update later: replace the macro code with the newest version.
 
 ## Requirements
 
 - WPS Office (with JS Macro support)
-- Both workbooks must be open in WPS before running
+- Both workbooks must be open in WPS before running:
     - Source workbook (the form)
     - Destination workbook (the summary)
-- Routings are defined in the `routings` array at the top of the script
+- Destination tabs must have consistent layout (same header order on every tab)
+- Header row must be on the same row on every destination tab (default: row 3)
 
 ## How it works
 
 The script:
 
-1. Reads values from source cells defined in `routings`
-2. Finds the first row in the destination where all mapped columns are empty
-3. Writes the group/entry starting there
-4. Clears the source form
+1. Reads the **destination tab name** from a dropdown on the source form
+2. Verifies the destination tab's headers match the expected layout
+3. Reads values from source cells defined in `ROUTINGS`
+4. Finds the first row in the destination where all mapped columns are empty
+5. Writes the group/entry starting there
+6. Clears the source form
 
 ## Configuration
 
-Routes are hardcoded in the `routings` array. To add a new column:
+Everything client-specific lives in the **CONFIGURATION** block at the
+top of `transferFormToSummary()`. To adapt for a new client, edit only
+that block — nothing below it should need to change.
 
 ```javascript
-{
-  fromWorkbook: "Workbook1.xlsm", fromTab: "Sheet1", fromCell: "A2",
-  toWorkbook: "Workbook2.xlsx", toTab: "Sheet1", toCell: "A3",
-  isMultiRow: true
-}
+const SOURCE_WORKBOOK = "FA Forms.xlsm";
+const TARGET_WORKBOOK = "Summary.xlsx";
+const DROPDOWN_CELL = "H10";
+const DEST_HEADER_ROW = 3;
+
+const ROUTINGS = [
+    { fromCell: "A2", toCell: "A3", isMultiRow: true, expectedHeader: "Date" },
+    { fromCell: "B2", toCell: "B3", isMultiRow: true, expectedHeader: "Name" },
+    {
+        fromCell: "C2",
+        toCell: "C3",
+        isMultiRow: true,
+        expectedHeader: "Amount",
+    },
+];
 ```

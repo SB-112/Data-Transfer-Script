@@ -1,40 +1,63 @@
 // ============================================================
-// WPS Form Transfer Script
-// Version: 2.1.0
+// DATA TRANSFER ENGINE — WPS JS Macro
+// Version: 3.0.0
 // Updated: 2026-10-15
-// ------------------------------------------------------------
-// Copies form data from a source workbook into a destination
-// summary table. Handles multi-row families where only the
-// first row carries date/amount but every row carries a name.
 // ============================================================
 
 function transferFormToSummary() {
     let app = Application;
 
-    // ==========================================
-    // CONFIGURABLE ROUTINGS
-    // ==========================================
-    let routings = [
-        // Add Routes Here
-        { 
-            fromWorkbook: "Workbook1.xlsm", fromTab: "Sheet1", fromCell: "A2", 
-            toWorkbook: "Workbook2.xlsx", toTab: "Sheet1", toCell: "A3", 
-            isMultiRow: true 
-        }
+    // ============================================================
+    // ⚙️ CONFIGURATION — edit this block per deployment
+    // ============================================================
+    const SOURCE_WORKBOOK = "Workbook1.xlsm";
+    const TARGET_WORKBOOK = "Workbook2.xlsx";
+    const DROPDOWN_CELL = "E6";
+    const DEST_HEADER_ROW = 3;
+
+    const ROUTINGS = [
+        { fromCell: "A2", toCell: "A3", isMultiRow: true, expectedHeader: "Date"   },
+        { fromCell: "B2", toCell: "B3", isMultiRow: true, expectedHeader: "Name"   },
+        { fromCell: "C2", toCell: "C3", isMultiRow: true, expectedHeader: "Amount" }
     ];
+    // ============================================================
+    // 🚫 ENGINE — do not edit below this line
+    // ============================================================
+
+    let srcSheet, srcWb, dstWb, dstSheet;
+    let targetTab;
 
     // ==========================================
-    // 0. RESOLVE ALL WORKBOOKS / SHEETS UPFRONT
+    // 1. RESOLVE WORKBOOKS, SOURCE TAB, TARGET TAB
+    // ==========================================
+    try {
+        srcWb = app.Workbooks(SOURCE_WORKBOOK);
+        dstWb = app.Workbooks(TARGET_WORKBOOK);
+
+        srcSheet = app.ActiveSheet;
+
+        refreshAreaDropdown(srcWb, dstWb, srcSheet, DROPDOWN_CELL);
+
+        targetTab = srcSheet.Range(DROPDOWN_CELL).Value2;
+        if (!targetTab || String(targetTab).trim() === "") {
+            alert("Please select an area from the dropdown first.");
+            return;
+        }
+        targetTab = String(targetTab).trim();
+
+        dstSheet = dstWb.Sheets(targetTab);
+    } catch (e) {
+        alert("Error resolving workbooks/sheets:\n" + e.message);
+        return;
+    }
+
+    // ==========================================
+    // 2. RESOLVE ROUTINGS INTO ABSOLUTE POSITIONS
     // ==========================================
     let resolved = [];
     try {
-        for (let i = 0; i < routings.length; i++) {
-            let r = routings[i];
-            let srcWb = app.Workbooks(r.fromWorkbook);
-            let srcSheet = srcWb.Sheets(r.fromTab);
-            let dstWb = app.Workbooks(r.toWorkbook);
-            let dstSheet = dstWb.Sheets(r.toTab);
-
+        for (let i = 0; i < ROUTINGS.length; i++) {
+            let r = ROUTINGS[i];
             let srcCell = srcSheet.Range(r.fromCell);
             let dstCell = dstSheet.Range(r.toCell);
 
@@ -45,23 +68,54 @@ function transferFormToSummary() {
                 srcRow: srcCell.Row,
                 srcCol: srcCell.Column,
                 dstRow: dstCell.Row,
-                dstCol: dstCell.Column,
+                dstCol: dstCell.Column
             });
         }
     } catch (e) {
-        alert("Error opening workbooks or sheets:\n" + e.message);
+        alert("Error resolving routings:\n" + e.message);
         return;
     }
 
     // ==========================================
-    // 1. CHECK IF FORM IS EMPTY
+    // 3. VERIFY DESTINATION HEADERS
+    // ==========================================
+    try {
+        let headerIssues = [];
+        for (let i = 0; i < resolved.length; i++) {
+            let item = resolved[i];
+            if (!item.r.expectedHeader) continue;
+
+            let actualHeader = item.dstSheet.Cells(DEST_HEADER_ROW, item.dstCol).Value2;
+            let actualStr = (actualHeader === null || actualHeader === undefined)
+                ? "" : String(actualHeader).trim();
+
+            if (actualStr !== item.r.expectedHeader) {
+                headerIssues.push(
+                    "Column " + item.dstCol + ": expected \"" + item.r.expectedHeader +
+                    "\" but found \"" + actualStr + "\""
+                );
+            }
+        }
+
+        if (headerIssues.length > 0) {
+            alert(
+                'Destination tab "' + targetTab + '" has unexpected headers:\n\n' +
+                headerIssues.join("\n") +
+                "\n\nPlease check the layout or contact the developer."
+            );
+            return;
+        }
+    } catch (e) {
+        alert("Error verifying headers:\n" + e.message);
+        return;
+    }
+
+    // ==========================================
+    // 4. CHECK IF FORM IS EMPTY
     // ==========================================
     let anyData = false;
     for (let i = 0; i < resolved.length; i++) {
-        let v = resolved[i].srcSheet.Cells(
-            resolved[i].srcRow,
-            resolved[i].srcCol,
-        ).Value2;
+        let v = resolved[i].srcSheet.Cells(resolved[i].srcRow, resolved[i].srcCol).Value2;
         if (v !== null && v !== undefined && String(v).trim() !== "") {
             anyData = true;
             break;
@@ -73,10 +127,7 @@ function transferFormToSummary() {
     }
 
     // ==========================================
-    // 2. CALCULATE MULTI-ROW COUNT
-    // Uses the widest source column across all multi-row
-    // routings. The Name column is typically the widest,
-    // which matches how families fill the form.
+    // 5. CALCULATE MULTI-ROW COUNT
     // ==========================================
     let maxRowsToTransfer = 1;
     try {
@@ -88,10 +139,7 @@ function transferFormToSummary() {
             let maxScan = 10000;
 
             while (count < maxScan) {
-                let cellVal = item.srcSheet.Cells(
-                    item.srcRow + count,
-                    item.srcCol,
-                ).Value2;
+                let cellVal = item.srcSheet.Cells(item.srcRow + count, item.srcCol).Value2;
                 if (cellVal === null || cellVal === undefined) break;
                 if (String(cellVal).trim() === "") break;
                 count++;
@@ -102,15 +150,12 @@ function transferFormToSummary() {
             }
         }
     } catch (e) {
-        alert("Error in Multi-Row check:\n" + e.message);
+        alert("Error in multi-row check:\n" + e.message);
         return;
     }
 
     // ==========================================
-    // 3. FIND DESTINATION START ROW
-    // Scan downward from the base row and find the first
-    // row where ALL mapped destination columns are empty.
-    // That's where the new family gets appended.
+    // 6. FIND FIRST ALL-BLANK ROW IN TARGET
     // ==========================================
     let targetStartRow;
     try {
@@ -123,11 +168,7 @@ function transferFormToSummary() {
             for (let i = 0; i < resolved.length; i++) {
                 let item = resolved[i];
                 let val = item.dstSheet.Cells(testRow, item.dstCol).Value2;
-                if (
-                    val !== null &&
-                    val !== undefined &&
-                    String(val).trim() !== ""
-                ) {
+                if (val !== null && val !== undefined && String(val).trim() !== "") {
                     allEmpty = false;
                     break;
                 }
@@ -138,14 +179,14 @@ function transferFormToSummary() {
             }
         }
 
-        targetStartRow = found === -1 ? baseRow : found;
+        targetStartRow = (found === -1) ? baseRow : found;
     } catch (e) {
         alert("Error finding destination row:\n" + e.message);
         return;
     }
 
     // ==========================================
-    // 4. TRANSFER DATA
+    // 7. TRANSFER DATA
     // ==========================================
     try {
         for (let i = 0; i < resolved.length; i++) {
@@ -157,11 +198,7 @@ function transferFormToSummary() {
                     let dRow = targetStartRow + offset;
 
                     let val = item.srcSheet.Cells(sRow, item.srcCol).Value2;
-                    if (
-                        val !== null &&
-                        val !== undefined &&
-                        String(val).trim() !== ""
-                    ) {
+                    if (val !== null && val !== undefined && String(val).trim() !== "") {
                         item.dstSheet.Cells(dRow, item.dstCol).Value2 = val;
                     }
                 }
@@ -171,12 +208,12 @@ function transferFormToSummary() {
             }
         }
     } catch (e) {
-        alert("Transfer Error:\n" + e.message);
+        alert("Transfer error:\n" + e.message);
         return;
     }
 
     // ==========================================
-    // 5. CLEAR SOURCE FORM
+    // 8. CLEAR SOURCE FORM
     // ==========================================
     try {
         for (let i = 0; i < resolved.length; i++) {
@@ -192,13 +229,49 @@ function transferFormToSummary() {
             }
         }
     } catch (e) {
-        alert("Clear Error:\n" + e.message);
+        alert("Clear error:\n" + e.message);
         return;
     }
 
-    alert(
-        "Success! Transferred " +
-            maxRowsToTransfer +
-            " row(s) and cleared the form.",
-    );
+    alert("Success! Transferred " + maxRowsToTransfer + " row(s) to \"" + targetTab + "\".");
+}
+
+// ============================================================
+// DROPDOWN HELPER
+// ============================================================
+
+function refreshAreaDropdown(srcWb, dstWb, srcSheet, dropdownCellAddress) {
+    let tabNames = [];
+    for (let i = 1; i <= dstWb.Sheets.Count; i++) {
+        tabNames.push(dstWb.Sheets(i).Name);
+    }
+    if (tabNames.length === 0) return;
+
+    let dropdownCell = srcSheet.Range(dropdownCellAddress);
+    let currentValue = dropdownCell.Value2;
+
+    let listString = tabNames.join(",");
+
+    try {
+        dropdownCell.Validation.Delete();
+    } catch (e) {
+        // no existing validation — fine
+    }
+
+    try {
+        dropdownCell.Validation.Add(3, 1, 1, listString);
+        dropdownCell.Validation.IgnoreBlank = true;
+        dropdownCell.Validation.InCellDropdown = true;
+    } catch (e) {
+        alert("Dropdown error:\n" + e.message);
+    }
+
+    let currentStr = (currentValue === null || currentValue === undefined)
+        ? "" : String(currentValue).trim();
+
+    if (currentStr && tabNames.indexOf(currentStr) !== -1) {
+        dropdownCell.Value2 = currentStr;
+    } else {
+        dropdownCell.Value2 = tabNames[0];
+    }
 }
