@@ -1,7 +1,12 @@
 // ============================================================
 // DATA TRANSFER ENGINE — WPS JS Macro
-// Version: 3.0.0
+// Version: 3.1.0
 // Updated: 2026-10-15
+// ------------------------------------------------------------
+// Automates copying form data from a source workbook into a
+// destination summary workbook. The destination tab is chosen
+// via a dropdown on each source tab. Destination columns are
+// located by header name, so column order doesn't matter.
 // ============================================================
 
 function transferFormToSummary() {
@@ -15,10 +20,15 @@ function transferFormToSummary() {
     const DROPDOWN_CELL = "E6";
     const DEST_HEADER_ROW = 3;
 
+    // One entry per column to transfer.
+    //   fromCell      = top-left cell of the source column on the form
+    //   targetHeader  = exact header text in the destination to write into
+    //   isMultiRow    = true if the column can have multiple rows per entry
+    //
     const ROUTINGS = [
-        { fromCell: "A2", toCell: "A3", isMultiRow: true, expectedHeader: "Date"   },
-        { fromCell: "B2", toCell: "B3", isMultiRow: true, expectedHeader: "Name"   },
-        { fromCell: "C2", toCell: "C3", isMultiRow: true, expectedHeader: "Amount" }
+        { fromCell: "A2", targetHeader: "Date", isMultiRow: true },
+        { fromCell: "B2", targetHeader: "Name", isMultiRow: true },
+        { fromCell: "C2", targetHeader: "Amount", isMultiRow: true },
     ];
     // ============================================================
     // 🚫 ENGINE — do not edit below this line
@@ -52,14 +62,39 @@ function transferFormToSummary() {
     }
 
     // ==========================================
-    // 2. RESOLVE ROUTINGS INTO ABSOLUTE POSITIONS
+    // 2. BUILD HEADER MAP FROM DESTINATION
+    // ==========================================
+    let headerMap = {};
+    try {
+        let lastCol = dstSheet.UsedRange.Columns.Count;
+        for (let col = 1; col <= lastCol; col++) {
+            let headerVal = dstSheet.Cells(DEST_HEADER_ROW, col).Value2;
+            if (headerVal === null || headerVal === undefined) continue;
+            let headerStr = String(headerVal).trim();
+            if (headerStr === "") continue;
+            headerMap[headerStr] = col;
+        }
+    } catch (e) {
+        alert("Error reading destination headers:\n" + e.message);
+        return;
+    }
+
+    // ==========================================
+    // 3. RESOLVE ROUTINGS USING HEADER NAMES
     // ==========================================
     let resolved = [];
+    let missingHeaders = [];
     try {
         for (let i = 0; i < ROUTINGS.length; i++) {
             let r = ROUTINGS[i];
+            let dstCol = headerMap[r.targetHeader];
+
+            if (!dstCol) {
+                missingHeaders.push(r.targetHeader);
+                continue;
+            }
+
             let srcCell = srcSheet.Range(r.fromCell);
-            let dstCell = dstSheet.Range(r.toCell);
 
             resolved.push({
                 r: r,
@@ -67,46 +102,23 @@ function transferFormToSummary() {
                 dstSheet: dstSheet,
                 srcRow: srcCell.Row,
                 srcCol: srcCell.Column,
-                dstRow: dstCell.Row,
-                dstCol: dstCell.Column
+                dstRow: DEST_HEADER_ROW + 1,
+                dstCol: dstCol,
             });
         }
-    } catch (e) {
-        alert("Error resolving routings:\n" + e.message);
-        return;
-    }
 
-    // ==========================================
-    // 3. VERIFY DESTINATION HEADERS
-    // ==========================================
-    try {
-        let headerIssues = [];
-        for (let i = 0; i < resolved.length; i++) {
-            let item = resolved[i];
-            if (!item.r.expectedHeader) continue;
-
-            let actualHeader = item.dstSheet.Cells(DEST_HEADER_ROW, item.dstCol).Value2;
-            let actualStr = (actualHeader === null || actualHeader === undefined)
-                ? "" : String(actualHeader).trim();
-
-            if (actualStr !== item.r.expectedHeader) {
-                headerIssues.push(
-                    "Column " + item.dstCol + ": expected \"" + item.r.expectedHeader +
-                    "\" but found \"" + actualStr + "\""
-                );
-            }
-        }
-
-        if (headerIssues.length > 0) {
+        if (missingHeaders.length > 0) {
             alert(
-                'Destination tab "' + targetTab + '" has unexpected headers:\n\n' +
-                headerIssues.join("\n") +
-                "\n\nPlease check the layout or contact the developer."
+                'Destination tab "' +
+                    targetTab +
+                    '" is missing these headers:\n\n' +
+                    missingHeaders.join("\n") +
+                    "\n\nPlease check the tab layout.",
             );
             return;
         }
     } catch (e) {
-        alert("Error verifying headers:\n" + e.message);
+        alert("Error resolving routings:\n" + e.message);
         return;
     }
 
@@ -115,7 +127,10 @@ function transferFormToSummary() {
     // ==========================================
     let anyData = false;
     for (let i = 0; i < resolved.length; i++) {
-        let v = resolved[i].srcSheet.Cells(resolved[i].srcRow, resolved[i].srcCol).Value2;
+        let v = resolved[i].srcSheet.Cells(
+            resolved[i].srcRow,
+            resolved[i].srcCol,
+        ).Value2;
         if (v !== null && v !== undefined && String(v).trim() !== "") {
             anyData = true;
             break;
@@ -139,7 +154,10 @@ function transferFormToSummary() {
             let maxScan = 10000;
 
             while (count < maxScan) {
-                let cellVal = item.srcSheet.Cells(item.srcRow + count, item.srcCol).Value2;
+                let cellVal = item.srcSheet.Cells(
+                    item.srcRow + count,
+                    item.srcCol,
+                ).Value2;
                 if (cellVal === null || cellVal === undefined) break;
                 if (String(cellVal).trim() === "") break;
                 count++;
@@ -159,7 +177,7 @@ function transferFormToSummary() {
     // ==========================================
     let targetStartRow;
     try {
-        let baseRow = resolved[0].dstRow;
+        let baseRow = DEST_HEADER_ROW + 1;
         let scanCap = baseRow + 10000;
         let found = -1;
 
@@ -168,7 +186,11 @@ function transferFormToSummary() {
             for (let i = 0; i < resolved.length; i++) {
                 let item = resolved[i];
                 let val = item.dstSheet.Cells(testRow, item.dstCol).Value2;
-                if (val !== null && val !== undefined && String(val).trim() !== "") {
+                if (
+                    val !== null &&
+                    val !== undefined &&
+                    String(val).trim() !== ""
+                ) {
                     allEmpty = false;
                     break;
                 }
@@ -179,7 +201,7 @@ function transferFormToSummary() {
             }
         }
 
-        targetStartRow = (found === -1) ? baseRow : found;
+        targetStartRow = found === -1 ? baseRow : found;
     } catch (e) {
         alert("Error finding destination row:\n" + e.message);
         return;
@@ -198,7 +220,11 @@ function transferFormToSummary() {
                     let dRow = targetStartRow + offset;
 
                     let val = item.srcSheet.Cells(sRow, item.srcCol).Value2;
-                    if (val !== null && val !== undefined && String(val).trim() !== "") {
+                    if (
+                        val !== null &&
+                        val !== undefined &&
+                        String(val).trim() !== ""
+                    ) {
                         item.dstSheet.Cells(dRow, item.dstCol).Value2 = val;
                     }
                 }
@@ -233,7 +259,13 @@ function transferFormToSummary() {
         return;
     }
 
-    alert("Success! Transferred " + maxRowsToTransfer + " row(s) to \"" + targetTab + "\".");
+    alert(
+        "Success! Transferred " +
+            maxRowsToTransfer +
+            ' row(s) to "' +
+            targetTab +
+            '".',
+    );
 }
 
 // ============================================================
@@ -266,8 +298,10 @@ function refreshAreaDropdown(srcWb, dstWb, srcSheet, dropdownCellAddress) {
         alert("Dropdown error:\n" + e.message);
     }
 
-    let currentStr = (currentValue === null || currentValue === undefined)
-        ? "" : String(currentValue).trim();
+    let currentStr =
+        currentValue === null || currentValue === undefined
+            ? ""
+            : String(currentValue).trim();
 
     if (currentStr && tabNames.indexOf(currentStr) !== -1) {
         dropdownCell.Value2 = currentStr;
