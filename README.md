@@ -31,10 +31,10 @@ AI was a tool; the design decisions were mine.
 
 ## Which version do I use?
 
-| Platform                  | Use                   |
-| ------------------------- | --------------------- |
-| Google Sheets             | `apps-script/Code.gs` |
-| WPS Office (spreadsheets) | `wps/Code.js`         |
+| Platform                  | Use               |
+| ------------------------- | ----------------- |
+| Google Sheets             | `googleScript.js` |
+| WPS Office (spreadsheets) | `wpsScript.js`    |
 
 Both solve the same problem. Both work independently — you only
 install one.
@@ -48,7 +48,7 @@ install one.
 1. Open the source spreadsheet
 2. Extensions → Apps Script
 3. Click `Code.gs`, press **Ctrl+A**, then **Delete**
-4. Paste the full contents of `apps-script/Code.gs`
+4. Paste the full contents of `googleScript.js`
 5. Save (💾) and reload the spreadsheet tab
 6. The **Transfer** menu appears in the top bar
 
@@ -100,7 +100,7 @@ install one.
 
 1. Open the source workbook in WPS
 2. Go to **Tools → Macros → Edit Macros** (or **Developer → Macros**)
-3. Paste the contents of `wps/Code.js`
+3. Paste the contents of `wpsScript.js`
 4. Save the workbook as `.xlsm` (macro-enabled)
 5. Assign the macro `transferFormToSummary` to a button (or run it via Developer → Macros)
 
