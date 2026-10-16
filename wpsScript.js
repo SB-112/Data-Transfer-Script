@@ -1,7 +1,7 @@
 // ============================================================
 // DATA TRANSFER ENGINE — WPS JS Macro
-// Version: 3.1.0
-// Updated: 2026-10-15
+// Version: 3.2.0
+// Updated: 2026-10-16
 // ------------------------------------------------------------
 // Automates copying form data from a source workbook into a
 // destination summary workbook. The destination tab is chosen
@@ -24,11 +24,19 @@ function transferFormToSummary() {
     //   fromCell      = top-left cell of the source column on the form
     //   targetHeader  = exact header text in the destination to write into
     //   isMultiRow    = true if the column can have multiple rows per entry
+    //   constantValue = (optional) a fixed value to write instead of
+    //                   reading from a source cell. Use for columns
+    //                   like "Type" that depend on which form this is.
     //
     const ROUTINGS = [
         { fromCell: "A2", targetHeader: "Date", isMultiRow: true },
         { fromCell: "B2", targetHeader: "Name", isMultiRow: true },
         { fromCell: "C2", targetHeader: "Amount", isMultiRow: true },
+        {
+            targetHeader: "Type",
+            constantValue: "Educational",
+            isMultiRow: true,
+        },
     ];
     // ============================================================
     // 🚫 ENGINE — do not edit below this line
@@ -94,12 +102,28 @@ function transferFormToSummary() {
                 continue;
             }
 
+            // Constant value routing (no source cell)
+            if (r.constantValue !== undefined) {
+                resolved.push({
+                    r: r,
+                    srcSheet: srcSheet,
+                    dstSheet: dstSheet,
+                    isConstant: true,
+                    value: r.constantValue,
+                    dstRow: DEST_HEADER_ROW + 1,
+                    dstCol: dstCol,
+                });
+                continue;
+            }
+
+            // Normal routing (reads from source cell)
             let srcCell = srcSheet.Range(r.fromCell);
 
             resolved.push({
                 r: r,
                 srcSheet: srcSheet,
                 dstSheet: dstSheet,
+                isConstant: false,
                 srcRow: srcCell.Row,
                 srcCol: srcCell.Column,
                 dstRow: DEST_HEADER_ROW + 1,
@@ -127,10 +151,9 @@ function transferFormToSummary() {
     // ==========================================
     let anyData = false;
     for (let i = 0; i < resolved.length; i++) {
-        let v = resolved[i].srcSheet.Cells(
-            resolved[i].srcRow,
-            resolved[i].srcCol,
-        ).Value2;
+        let item = resolved[i];
+        if (item.isConstant) continue;
+        let v = item.srcSheet.Cells(item.srcRow, item.srcCol).Value2;
         if (v !== null && v !== undefined && String(v).trim() !== "") {
             anyData = true;
             break;
@@ -148,6 +171,7 @@ function transferFormToSummary() {
     try {
         for (let i = 0; i < resolved.length; i++) {
             let item = resolved[i];
+            if (item.isConstant) continue;
             if (!item.r.isMultiRow) continue;
 
             let count = 0;
@@ -214,6 +238,17 @@ function transferFormToSummary() {
         for (let i = 0; i < resolved.length; i++) {
             let item = resolved[i];
 
+            // Constant value → write to every row
+            if (item.isConstant) {
+                for (let offset = 0; offset < maxRowsToTransfer; offset++) {
+                    item.dstSheet.Cells(
+                        targetStartRow + offset,
+                        item.dstCol,
+                    ).Value2 = item.value;
+                }
+                continue;
+            }
+
             if (item.r.isMultiRow) {
                 for (let offset = 0; offset < maxRowsToTransfer; offset++) {
                     let sRow = item.srcRow + offset;
@@ -244,6 +279,7 @@ function transferFormToSummary() {
     try {
         for (let i = 0; i < resolved.length; i++) {
             let item = resolved[i];
+            if (item.isConstant) continue;
 
             if (item.r.isMultiRow) {
                 for (let offset = 0; offset < maxRowsToTransfer; offset++) {
